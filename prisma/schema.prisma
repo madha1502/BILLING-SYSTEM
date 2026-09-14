@@ -1,0 +1,466 @@
+// KiranaPro SaaS - Prisma Schema Definition
+// Production-grade multi-tenant architecture for Indian Kirana & Grocery Stores
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  CASHIER
+  STAFF
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum Unit {
+  PIECE
+  KG
+  GRAM
+  LITRE
+  ML
+  PACKET
+  BOX
+  BOTTLE
+  DOZEN
+  METRE
+}
+
+enum SaleStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  SPLIT
+  OTHER
+}
+
+enum InventoryTxType {
+  SALE
+  PURCHASE
+  ADJUSTMENT
+  RETURN
+  DAMAGE
+}
+
+enum ExpenseCategory {
+  RENT
+  ELECTRICITY
+  SALARY
+  TRANSPORT
+  PURCHASE_RELATED
+  MAINTENANCE
+  OTHER
+}
+
+enum SmsStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+model Tenant {
+  id                String       @id @default(uuid())
+  name              String
+  localName         String?
+  phone             String       @unique
+  address           String?
+  gstin             String?
+  isGstRegistered   Boolean      @default(false)
+  currency          String       @default("INR")
+  timezone          String       @default("Asia/Kolkata")
+  status            TenantStatus @default(TRIAL)
+  invoicePrefix     String       @default("INV")
+  invoiceCounter    Int          @default(1)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  users                 User[]
+  categories            Category[]
+  products              Product[]
+  productBarcodes       ProductBarcode[]
+  productAliases        ProductAlias[]
+  productPriceHistories ProductPriceHistory[]
+  customers             Customer[]
+  sales                 Sale[]
+  saleItems             SaleItem[]
+  payments              Payment[]
+  inventoryTransactions InventoryTransaction[]
+  expenses              Expense[]
+  smsLogs               SmsLog[]
+  subscriptions         Subscription[]
+  auditLogs             AuditLog[]
+  devices               Device[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  phone        String   @unique
+  passwordHash String
+  role         Role     @default(CASHIER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sales                 Sale[]
+  inventoryTransactions InventoryTransaction[]
+  expenses              Expense[]
+  auditLogs             AuditLog[]
+  priceChanges          ProductPriceHistory[]  @relation("PriceChangedBy")
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  tenantId    String
+  name        String
+  localName   String?
+  description String?
+  icon        String?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("categories")
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  tenantId      String
+  categoryId    String?
+  name          String
+  localName     String?
+  barcode       String?
+  sku           String?
+  unit          Unit     @default(PIECE)
+  purchasePrice Decimal  @db.Decimal(12, 2)
+  sellingPrice  Decimal  @db.Decimal(12, 2)
+  taxRate       Decimal  @default(0.00) @db.Decimal(5, 2)
+  currentStock  Decimal  @default(0.000) @db.Decimal(12, 3)
+  minimumStock  Decimal  @default(5.000) @db.Decimal(12, 3)
+  imageUrl      String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category              Category?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  barcodes              ProductBarcode[]
+  aliases               ProductAlias[]
+  priceHistories        ProductPriceHistory[]
+  saleItems             SaleItem[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, name])
+  @@index([tenantId, barcode])
+  @@map("products")
+}
+
+model ProductBarcode {
+  id        String   @id @default(uuid())
+  tenantId  String
+  productId String
+  barcode   String
+  createdAt DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, barcode])
+  @@index([tenantId])
+  @@map("product_barcodes")
+}
+
+model ProductAlias {
+  id         String   @id @default(uuid())
+  tenantId   String
+  productId  String
+  alias      String   // Normalized lowercase string e.g., "arisi", "ponni", "அரிசி"
+  localAlias String?
+  createdAt  DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, alias])
+  @@index([tenantId, alias])
+  @@map("product_aliases")
+}
+
+model ProductPriceHistory {
+  id               String   @id @default(uuid())
+  tenantId         String
+  productId        String
+  oldPurchasePrice Decimal  @db.Decimal(12, 2)
+  oldSellingPrice  Decimal  @db.Decimal(12, 2)
+  newPurchasePrice Decimal  @db.Decimal(12, 2)
+  newSellingPrice  Decimal  @db.Decimal(12, 2)
+  changedByUserId  String?
+  effectiveFrom    DateTime @default(now())
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  changedBy User?    @relation("PriceChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, productId])
+  @@map("product_price_histories")
+}
+
+model Customer {
+  id             String    @id @default(uuid())
+  tenantId       String
+  name           String
+  phone          String?
+  email          String?
+  totalPurchases Decimal   @default(0.00) @db.Decimal(12, 2)
+  lastPurchaseAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sales  Sale[]
+
+  @@index([tenantId, phone])
+  @@index([tenantId, name])
+  @@map("customers")
+}
+
+model Sale {
+  id             String        @id @default(uuid())
+  tenantId       String
+  billNumber     String
+  idempotencyKey String?
+  customerId     String?
+  userId         String
+  status         SaleStatus    @default(COMPLETED)
+  subtotal       Decimal       @db.Decimal(12, 2)
+  discount       Decimal       @default(0.00) @db.Decimal(12, 2)
+  taxAmount      Decimal       @default(0.00) @db.Decimal(12, 2)
+  totalAmount    Decimal       @db.Decimal(12, 2)
+  paymentMethod  PaymentMethod @default(CASH)
+  notes          String?
+  localCreatedAt DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  user     User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items    SaleItem[]
+  payments Payment[]
+  smsLogs  SmsLog[]
+
+  @@unique([tenantId, billNumber])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, createdAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  saleId               String
+  productId            String
+  productName          String
+  unit                 Unit     @default(PIECE)
+  unitPrice            Decimal  @db.Decimal(12, 2)
+  purchasePriceAtSale  Decimal  @db.Decimal(12, 2)
+  taxRateAtSale        Decimal  @db.Decimal(5, 2)
+  quantity             Decimal  @db.Decimal(12, 3)
+  subtotal             Decimal  @db.Decimal(12, 2)
+  taxAmount            Decimal  @db.Decimal(12, 2)
+  total                Decimal  @db.Decimal(12, 2)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, saleId])
+  @@index([tenantId, productId])
+  @@map("sale_items")
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  tenantId        String
+  saleId          String
+  paymentMethod   PaymentMethod
+  amount          Decimal       @db.Decimal(12, 2)
+  referenceNumber String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, saleId])
+  @@map("payments")
+}
+
+model InventoryTransaction {
+  id             String          @id @default(uuid())
+  tenantId       String
+  productId      String
+  type           InventoryTxType
+  quantityChange Decimal         @db.Decimal(12, 3)
+  stockAfter     Decimal         @db.Decimal(12, 3)
+  referenceId    String?
+  notes          String?
+  userId         String?
+  createdAt      DateTime        @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, productId])
+  @@index([tenantId, createdAt])
+  @@map("inventory_transactions")
+}
+
+model Expense {
+  id            String          @id @default(uuid())
+  tenantId      String
+  category      ExpenseCategory
+  amount        Decimal         @db.Decimal(12, 2)
+  paymentMethod PaymentMethod   @default(CASH)
+  description   String?
+  expenseDate   DateTime        @default(now())
+  userId        String?
+  receiptUrl    String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, expenseDate])
+  @@map("expenses")
+}
+
+model SmsLog {
+  id               String    @id @default(uuid())
+  tenantId         String
+  saleId           String?
+  customerPhone    String
+  message          String
+  provider         String    @default("MOCK_SMS")
+  status           SmsStatus @default(PENDING)
+  providerResponse String?
+  retryCount       Int       @default(0)
+  sentAt           DateTime?
+  createdAt        DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale   Sale?   @relation(fields: [saleId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("sms_logs")
+}
+
+model Plan {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  name            String
+  priceMonthly    Decimal  @db.Decimal(12, 2)
+  maxUsers        Int      @default(1)
+  maxProducts     Int      @default(500)
+  maxBillsPerMonth Int     @default(1000)
+  includesSms     Boolean  @default(true)
+  includesVoice   Boolean  @default(true)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                 String             @id @default(uuid())
+  tenantId           String
+  planId             String
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@map("subscriptions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+model Device {
+  id          String   @id @default(uuid())
+  tenantId    String
+  deviceName  String
+  deviceUuid  String   @unique
+  lastSyncAt  DateTime @default(now())
+  isApproved  Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("devices")
+}
