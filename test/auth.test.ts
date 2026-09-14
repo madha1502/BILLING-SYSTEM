@@ -38,7 +38,7 @@ describe('KiranaPro Auth & Multi-Tenant Isolation Engine', () => {
 
     expect(loginResult.token).toBeDefined();
     expect(loginResult.user.name).toBe('Murugan (Owner)');
-    expect(loginResult.tenant.name).toBe('Murugan Kirana & General Store');
+    expect(loginResult.tenant.name).toBe('Vinisha Nellai Stores Kangeyam');
   });
 
   it('should allow store owner to create employee accounts with CASHIER role', async () => {

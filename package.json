@@ -1,6 +1,7 @@
 {
   "name": "kiranapro-saas",
   "version": "1.0.0",
+  "type": "module",
   "description": "Smart Grocery Billing & Shop Management SaaS for Kirana Stores in India",
   "main": "dist/server.js",
   "scripts": {

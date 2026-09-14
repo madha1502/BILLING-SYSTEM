@@ -3,7 +3,7 @@ import { NotFoundError, AppError } from '../../shared/errors/app-error.js';
 
 export interface AdjustStockInput {
   productId: string;
-  type: 'PURCHASE' | 'ADJUSTMENT' | 'RETURN' | 'DAMAGE';
+  type: 'SALE' | 'PURCHASE' | 'ADJUSTMENT' | 'RETURN' | 'DAMAGE';
   quantityChange: number; // positive for addition, negative for reduction
   notes?: string;
 }
